@@ -10,7 +10,7 @@
 //
 // Both faces are merged and handed to the review screen for confirmation.
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import {
   View,
   Text,
@@ -27,7 +27,7 @@ import {
   mergeFaces,
   type ExtractionResult,
 } from '../../lib/extraction';
-import { prepareImage } from '../../lib/imagePrep';
+import { prepareImage, hasImageManipulator } from '../../lib/imagePrep';
 import type { CropRect } from '../../lib/credentialTypes';
 import { COLOR } from '../IDCard/tokens';
 import { CropScreen } from './CropScreen';
@@ -41,6 +41,16 @@ type Step = 'front' | 'crop' | 'back';
 
 export function CaptureScreen({ onExtracted, onCancel }: CaptureScreenProps) {
   const [permission, requestPermission] = useCameraPermissions();
+  const [nativePipeline, setNativePipeline] = useState<boolean | null>(null);
+  useEffect(() => {
+    let live = true;
+    hasImageManipulator().then((ok) => {
+      if (live) setNativePipeline(ok);
+    });
+    return () => {
+      live = false;
+    };
+  }, []);
   const [step, setStep] = useState<Step>('front');
   const [scanning, setScanning] = useState(true);
   const [busy, setBusy] = useState(false);
@@ -135,6 +145,8 @@ export function CaptureScreen({ onExtracted, onCancel }: CaptureScreenProps) {
           zone with your ID number.
         </Text>
 
+        {nativePipeline === false ? <DegradedBanner /> : null}
+
         {frontPhoto ? (
           <View style={styles.thumbWrap}>
             <Image source={{ uri: frontPhoto }} style={styles.thumb} resizeMode="contain" />
@@ -185,6 +197,7 @@ export function CaptureScreen({ onExtracted, onCancel }: CaptureScreenProps) {
           The camera is used to scan the QR on the front of your ID card — or you can upload a
           photo of the card instead. No images leave your phone.
         </Text>
+        {nativePipeline === false ? <DegradedBanner /> : null}
         <Pressable style={styles.primary} onPress={pickFront} disabled={busy}>
           {busy ? (
             <ActivityIndicator color={COLOR.black} />
@@ -224,6 +237,8 @@ export function CaptureScreen({ onExtracted, onCancel }: CaptureScreenProps) {
       <View style={styles.panel}>
         {error ? <Text style={styles.error}>{error}</Text> : null}
 
+        {nativePipeline === false ? <DegradedBanner /> : null}
+
         <Pressable style={styles.primary} onPress={pickFront} disabled={busy}>
           {busy ? (
             <ActivityIndicator color={COLOR.black} />
@@ -244,6 +259,18 @@ export function CaptureScreen({ onExtracted, onCancel }: CaptureScreenProps) {
 
 const CORNER = 26;
 
+/** Shown when the installed build predates expo-image-manipulator (no native module). */
+function DegradedBanner() {
+  return (
+    <View style={styles.banner}>
+      <Text style={styles.bannerText}>
+        LIMITED IMAGE RESOLUTION — this build lacks the photo-normalization engine. Rebuild
+        the dev client to enable full orientation & scale.
+      </Text>
+    </View>
+  );
+}
+
 const styles = StyleSheet.create({
   screen: {
     flex: 1,
@@ -251,6 +278,22 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
     padding: 24,
+  },
+  banner: {
+    alignSelf: 'stretch',
+    backgroundColor: 'rgba(214, 180, 92, 0.10)',
+    borderWidth: 1,
+    borderColor: 'rgba(214, 180, 92, 0.4)',
+    borderRadius: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    marginBottom: 14,
+  },
+  bannerText: {
+    color: COLOR.gold,
+    fontSize: 10,
+    lineHeight: 14,
+    textAlign: 'center',
   },
   cameraWrap: {
     width: '100%',

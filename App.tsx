@@ -21,7 +21,7 @@ import { COLOR } from './components/IDCard/tokens';
 import { CaptureScreen } from './components/Provision/CaptureScreen';
 import { ReviewScreen } from './components/Provision/ReviewScreen';
 import { CropScreen } from './components/Provision/CropScreen';
-import { prepareImage } from './lib/imagePrep';
+import { prepareImage, hasImageManipulator } from './lib/imagePrep';
 import {
   isProvisioned,
   readCredential,
@@ -64,6 +64,17 @@ export default function App() {
   const [pendingPortrait, setPendingPortrait] = useState<string | null>(null);
   const [pendingPortraitSize, setPendingPortraitSize] = useState<{ w: number; h: number } | null>(null);
   const [photoError, setPhotoError] = useState('');
+  const [nativePipeline, setNativePipeline] = useState<boolean | null>(null);
+
+  useEffect(() => {
+    let live = true;
+    hasImageManipulator().then((ok) => {
+      if (live) setNativePipeline(ok);
+    });
+    return () => {
+      live = false;
+    };
+  }, []);
 
   useEffect(() => {
     (async () => {
@@ -232,6 +243,11 @@ export default function App() {
         <Text style={styles.updatePhotoText}>UPDATE PORTRAIT</Text>
       </Pressable>
       {photoError ? <Text style={styles.photoError}>{photoError}</Text> : null}
+      {nativePipeline === false ? (
+        <Text style={styles.degradedNote}>
+          PHOTO NORMALIZATION UNAVAILABLE ON THIS BUILD — REBUILD THE DEV CLIENT TO ENABLE
+        </Text>
+      ) : null}
       <Text style={styles.hint}>TAP THE CARD TO FLIP</Text>
     </View>
   );
@@ -279,6 +295,15 @@ const styles = StyleSheet.create({
     color: '#E57373',
     fontSize: 11,
     textAlign: 'center',
+  },
+  degradedNote: {
+    marginTop: 10,
+    color: COLOR.gold,
+    fontSize: 8,
+    fontWeight: '700',
+    letterSpacing: 1.5,
+    textAlign: 'center',
+    maxWidth: 320,
   },
   hint: {
     marginTop: 14,
