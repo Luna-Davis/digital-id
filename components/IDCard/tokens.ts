@@ -63,6 +63,7 @@ export type CardScale = {
   serialW: number;
   rule: number;
   credBandH: number;
+  mrz: number; // machine-readable zone (3 lines must fit the band)
   bracket: number;
   sigW: number;
 };
@@ -91,6 +92,9 @@ export function cardScale(w: number): CardScale {
     serialW: w * 0.023,
     rule: Math.max(1, w * 0.003),
     credBandH,
+    // Largest size that still fits the MRZ's three lines inside the 1/5 band:
+    // 3 lines x lineHeight (x1.2) <= band height (w / 1.586 x 0.2).
+    mrz: w * 0.031,
     bracket: credBandH * 0.34,
     sigW: w * 0.2,
   };

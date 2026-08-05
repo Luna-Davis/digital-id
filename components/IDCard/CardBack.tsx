@@ -172,7 +172,7 @@ export function CardBack(props: CardBackProps) {
             numberOfLines={3}
             style={[
               styles.mrz,
-              { fontSize: s.micro, lineHeight: s.micro * 1.3, letterSpacing: s.micro * 0.05 },
+              { fontSize: s.mrz, lineHeight: s.mrz * 1.2, letterSpacing: s.mrz * 0.05 },
             ]}
           >
             {props.mrz}

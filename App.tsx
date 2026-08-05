@@ -2,21 +2,26 @@
 //
 // Root state machine:
 //
-//   loading ──► capture ──► review ──► card
-//                              ▲           │
-//                              └───────────┘ (locked, immutable)
+//   loading ──► capture ──► review ──► card ──(background)──► unlock
+//       │                             ▲                        │
+//       │  (first launch → capture)   │   (biometric / PIN)    │
+//       └─────────────────────────────┴────────────────────────┘
 //
-// First launch shows the two-step capture flow (front QR/photo → crop
-// portrait → back photo). Once the user confirms and locks the credential it
-// is encrypted and written to a write-once file; the app then shows the ID
-// card populated with the real data. Only the portrait photo (and its crop)
-// remain updatable.
+// First launch runs the two-step capture flow (front photo → crop portrait →
+// back photo). Once the user confirms, the credential is encrypted and written
+// to a write-once file, and the user is asked to set a lock PIN. Later launches
+// boot → unlock (biometrics if enrolled, otherwise the PIN) → card. The card
+// re-locks whenever the app leaves the foreground. Only the portrait photo
+// (and its crop) remain updatable after provisioning.
 
-import { useEffect, useState } from 'react';
-import { View, StyleSheet, Text, Pressable, ActivityIndicator, Platform } from 'react-native';
+import { useEffect, useRef, useState } from 'react';
+import { View, StyleSheet, Text, Pressable, Platform, AppState } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import * as ImagePicker from 'expo-image-picker';
 import { IDCardFlip } from './components/IDCard/IDCardFlip';
+import { BootScreen } from './components/Boot/BootScreen';
+import { PinSetupScreen } from './components/Lock/PinSetupScreen';
+import { UnlockScreen } from './components/Lock/UnlockScreen';
 import { COLOR } from './components/IDCard/tokens';
 import { CaptureScreen } from './components/Provision/CaptureScreen';
 import { ReviewScreen } from './components/Provision/ReviewScreen';
@@ -32,8 +37,12 @@ import {
 } from './lib/credentialStore';
 import type { CredentialData, CropRect } from './lib/credentialTypes';
 import type { ExtractionResult } from './lib/extraction';
+import { isPinSet } from './lib/lockStore';
 
-type Screen = 'loading' | 'capture' | 'review' | 'card' | 'photoCrop';
+type Screen = 'loading' | 'pinSetup' | 'unlock' | 'capture' | 'review' | 'card' | 'photoCrop';
+
+/** Minimum time the branding/boot screen stays on screen at launch. */
+const MIN_BOOT_MS = 1800;
 
 /** Placeholder data for web preview only (native uses the encrypted store). */
 const SAMPLE: CredentialData = {
@@ -69,6 +78,10 @@ export default function App() {
   const [photoError, setPhotoError] = useState('');
   const [nativePipeline, setNativePipeline] = useState<boolean | null>(null);
 
+  // Mirror of `screen` so the AppState listener never needs to re-subscribe.
+  const screenRef = useRef<Screen>('loading');
+  screenRef.current = screen;
+
   useEffect(() => {
     let live = true;
     hasImageManipulator().then((ok) => {
@@ -79,12 +92,32 @@ export default function App() {
     };
   }, []);
 
+  // Re-lock when the app leaves the foreground while the card is showing.
   useEffect(() => {
+    const sub = AppState.addEventListener('change', (next) => {
+      if (Platform.OS === 'web') return;
+      if ((next === 'background' || next === 'inactive') && screenRef.current === 'card') {
+        setScreen('unlock');
+      }
+    });
+    return () => sub.remove();
+  }, []);
+
+  useEffect(() => {
+    let live = true;
+    const bootedAt = Date.now();
+    // Hold the boot screen long enough to register, even if provisioning is fast.
+    const go = (next: Screen) => {
+      const delay = Math.max(0, MIN_BOOT_MS - (Date.now() - bootedAt));
+      setTimeout(() => {
+        if (live) setScreen(next);
+      }, delay);
+    };
     (async () => {
       try {
         if (Platform.OS === 'web') {
           // Web preview: no native store — show the sample card.
-          setScreen('card');
+          go('card');
           return;
         }
         if (isProvisioned()) {
@@ -92,16 +125,22 @@ export default function App() {
           setCredential(data);
           setPhotoUri(await getPhotoUri());
           setPhotoCrop(await getPhotoCrop());
-          setScreen('card');
+          go((await isPinSet()) ? 'unlock' : 'pinSetup');
         } else {
           // First launch — start the capture flow (front → back).
-          setScreen('capture');
+          go('capture');
         }
       } catch {
-        setScreen('capture');
+        go('capture');
       }
     })();
+    return () => {
+      live = false;
+    };
   }, []);
+
+  const handlePinSetupDone = () => setScreen('card');
+  const handleUnlock = () => setScreen('card');
 
   const handleExtracted = (result: ExtractionResult, photo?: string, crop?: CropRect) => {
     setDraft(result);
@@ -122,7 +161,7 @@ export default function App() {
     setPhotoUri(await getPhotoUri());
     setPhotoCrop(crop ?? (await getPhotoCrop()));
     setDraft(null);
-    setScreen('card');
+    setScreen((await isPinSet()) ? 'card' : 'pinSetup');
   };
 
   // --- UPDATE PORTRAIT: pick a new source photo, then crop it -------------
@@ -161,12 +200,15 @@ export default function App() {
   };
 
   if (screen === 'loading') {
-    return (
-      <View style={styles.container}>
-        <StatusBar style="light" />
-        <ActivityIndicator color={COLOR.gold} size="large" />
-      </View>
-    );
+    return <BootScreen />;
+  }
+
+  if (screen === 'pinSetup') {
+    return <PinSetupScreen onDone={handlePinSetupDone} />;
+  }
+
+  if (screen === 'unlock') {
+    return <UnlockScreen onUnlock={handleUnlock} />;
   }
 
   if (screen === 'capture') {
