@@ -22,6 +22,7 @@ import { IDCardFlip } from './components/IDCard/IDCardFlip';
 import { BootScreen } from './components/Boot/BootScreen';
 import { PinSetupScreen } from './components/Lock/PinSetupScreen';
 import { UnlockScreen } from './components/Lock/UnlockScreen';
+import { SettingsScreen } from './components/Settings/SettingsScreen';
 import { COLOR } from './components/IDCard/tokens';
 import { CaptureScreen } from './components/Provision/CaptureScreen';
 import { ReviewScreen } from './components/Provision/ReviewScreen';
@@ -39,7 +40,7 @@ import type { CredentialData, CropRect } from './lib/credentialTypes';
 import type { ExtractionResult } from './lib/extraction';
 import { isPinSet } from './lib/lockStore';
 
-type Screen = 'loading' | 'pinSetup' | 'unlock' | 'capture' | 'review' | 'card' | 'photoCrop';
+type Screen = 'loading' | 'pinSetup' | 'unlock' | 'capture' | 'review' | 'card' | 'photoCrop' | 'settings';
 
 /** Minimum time the branding/boot screen stays on screen at launch. */
 const MIN_BOOT_MS = 1800;
@@ -211,6 +212,10 @@ export default function App() {
     return <UnlockScreen onUnlock={handleUnlock} />;
   }
 
+  if (screen === 'settings') {
+    return <SettingsScreen onBack={() => setScreen('card')} />;
+  }
+
   if (screen === 'capture') {
     return (
       <View style={styles.container}>
@@ -288,6 +293,10 @@ export default function App() {
         photoCrop={photoCrop ?? undefined}
       />
 
+      <Pressable style={styles.settingsButton} onPress={() => setScreen('settings')}>
+        <Text style={styles.settingsButtonText}>SETTINGS</Text>
+      </Pressable>
+
       <Pressable style={styles.updatePhoto} onPress={handleUpdatePortrait}>
         <Text style={styles.updatePhotoText}>UPDATE PORTRAIT</Text>
       </Pressable>
@@ -324,6 +333,23 @@ const styles = StyleSheet.create({
     bottom: '10%',
     right: '4%',
     backgroundColor: 'rgba(214, 180, 92, 0.05)',
+  },
+  settingsButton: {
+    position: 'absolute',
+    top: 48,
+    right: 20,
+    borderWidth: 1,
+    borderColor: COLOR.border,
+    borderRadius: 16,
+    paddingVertical: 6,
+    paddingHorizontal: 14,
+    backgroundColor: 'rgba(28, 33, 41, 0.8)',
+  },
+  settingsButtonText: {
+    color: COLOR.textSecondary,
+    fontSize: 9,
+    fontWeight: '700',
+    letterSpacing: 2,
   },
   updatePhoto: {
     marginTop: 20,

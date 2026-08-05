@@ -46,7 +46,8 @@
         {
           "faceIDPermission": "Allow $(PRODUCT_NAME) to use Face ID to unlock your ID card."
         }
-      ]
+      ],
+      "./plugins/withOffline"
     ],
     "extra": {
       "eas": {
