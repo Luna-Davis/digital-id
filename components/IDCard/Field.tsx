@@ -9,6 +9,8 @@ type FieldProps = {
   style?: ViewStyle;
   /** The scaled measurement set for the current card width. */
   scale: CardScale;
+  /** Slightly smaller type — for dense faces (the back's 6-field address block). */
+  compact?: boolean;
 };
 
 /**
@@ -16,7 +18,8 @@ type FieldProps = {
  * value sits beneath it on the same baseline grid, so every field on the
  * card aligns to one shared rhythm.
  */
-export function Field({ label, value, style, scale: s }: FieldProps) {
+export function Field({ label, value, style, scale: s, compact }: FieldProps) {
+  const k = compact ? 0.82 : 1;
   return (
     <View style={[styles.container, { marginBottom: s.fieldGap }, style]}>
       <Text
@@ -26,8 +29,8 @@ export function Field({ label, value, style, scale: s }: FieldProps) {
         style={[
           styles.label,
           {
-            fontSize: s.label,
-            lineHeight: s.label * 1.18,
+            fontSize: s.label * k,
+            lineHeight: s.label * k * 1.18,
             letterSpacing: s.label * 0.14,
           },
         ]}
@@ -41,8 +44,8 @@ export function Field({ label, value, style, scale: s }: FieldProps) {
         style={[
           styles.value,
           {
-            fontSize: s.body,
-            lineHeight: s.body * 1.12,
+            fontSize: s.body * k,
+            lineHeight: s.body * k * 1.12,
           },
         ]}
       >

@@ -27,7 +27,7 @@ import {
   mergeFaces,
   type ExtractionResult,
 } from '../../lib/extraction';
-import { prepareImage, hasImageManipulator } from '../../lib/imagePrep';
+import { prepareCardUpright, hasImageManipulator } from '../../lib/imagePrep';
 import type { CropRect } from '../../lib/credentialTypes';
 import { COLOR } from '../IDCard/tokens';
 import { CropScreen } from './CropScreen';
@@ -81,9 +81,10 @@ export function CaptureScreen({ onExtracted, onCancel }: CaptureScreenProps) {
     setBusy(true);
     setError('');
     try {
-      // Resolve orientation + scale FIRST — OCR, the crop preview and the
-      // stored portrait must all see one consistent, correctly-oriented image.
-      const prepared = await prepareImage(res.assets[0].uri, { orient: 'card' });
+      // Resolve orientation + scale + UPRIGHT check FIRST — OCR, the crop
+      // preview and the stored portrait must all see one consistent image,
+      // with the card's header at the top so extraction reads it in order.
+      const prepared = await prepareCardUpright(res.assets[0].uri, 'front');
       const result = await extractFromImage(prepared.uri, 'front');
       setFrontResult(result);
       setFrontPhoto(prepared.uri);
@@ -111,7 +112,7 @@ export function CaptureScreen({ onExtracted, onCancel }: CaptureScreenProps) {
     setBusy(true);
     setError('');
     try {
-      const prepared = await prepareImage(res.assets[0].uri, { orient: 'card' });
+      const prepared = await prepareCardUpright(res.assets[0].uri, 'back');
       const result = await extractFromImage(prepared.uri, 'back');
       setBackResult(result);
       const merged = mergeFaces(frontResult, result);

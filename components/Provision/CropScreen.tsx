@@ -15,6 +15,7 @@ import {
   StyleSheet,
   Image,
   Pressable,
+  ActivityIndicator,
   PanResponder,
   type LayoutChangeEvent,
 } from 'react-native';
@@ -39,6 +40,8 @@ export function CropScreen({ imageUri, naturalSize, onConfirm, onCancel }: CropS
     naturalSize ? { w: naturalSize.w, h: naturalSize.h } : null,
   );
   const [frame, setFrameState] = useState<Frame | null>(null);
+  // Preview image lifecycle — a slow decode used to look like a black void.
+  const [imgState, setImgState] = useState<'loading' | 'ok' | 'error'>('loading');
 
   // Refs are the source of truth for gesture handlers.
   const layout = useRef({ box: null as { w: number; h: number } | null, natural: null as { w: number; h: number } | null });
@@ -90,6 +93,11 @@ export function CropScreen({ imageUri, naturalSize, onConfirm, onCancel }: CropS
     if (naturalSize) return; // we already know the resolved dimensions
     Image.getSize(imageUri, (w, h) => setNatural({ w, h }), () => {});
   };
+
+  // The preview must be positioned with REAL style keys — imageRect() returns
+  // coordinate keys (x/y/w/h); RN only honors left/top/width/height. Spreading
+  // the raw rect used to silently drop the position, leaving a blank slab.
+  const imgRect = imageRect();
 
   // Initialize the frame once both the box and image size are known.
   useEffect(() => {
@@ -173,7 +181,21 @@ export function CropScreen({ imageUri, naturalSize, onConfirm, onCancel }: CropS
       <View style={styles.box} onLayout={onLayoutBox}>
         {natural && box ? (
           <View style={styles.imageWrap}>
-            <Image source={{ uri: imageUri }} style={{ position: 'absolute', ...imageRect() }} resizeMode="contain" />
+            {imgRect.w > 0 && imgRect.h > 0 ? (
+              <Image
+                source={{ uri: imageUri }}
+                style={{
+                  position: 'absolute',
+                  left: imgRect.x,
+                  top: imgRect.y,
+                  width: imgRect.w,
+                  height: imgRect.h,
+                }}
+                resizeMode="contain"
+                onLoad={() => setImgState('ok')}
+                onError={() => setImgState('error')}
+              />
+            ) : null}
             {frame ? (
               <>
                 <View
@@ -192,14 +214,22 @@ export function CropScreen({ imageUri, naturalSize, onConfirm, onCancel }: CropS
                 />
               </>
             ) : null}
+            <ImgOverlay state={imgState} />
           </View>
         ) : (
-          <Image
-            source={{ uri: imageUri }}
-            style={StyleSheet.absoluteFill}
-            resizeMode="contain"
-            onLoad={onImageLoad}
-          />
+          <View style={styles.imageWrap}>
+            <Image
+              source={{ uri: imageUri }}
+              style={StyleSheet.absoluteFill}
+              resizeMode="contain"
+              onLoad={() => {
+                setImgState('ok');
+                onImageLoad();
+              }}
+              onError={() => setImgState('error')}
+            />
+            <ImgOverlay state={imgState} />
+          </View>
         )}
       </View>
 
@@ -207,10 +237,24 @@ export function CropScreen({ imageUri, naturalSize, onConfirm, onCancel }: CropS
         <Pressable style={styles.ghost} onPress={onCancel}>
           <Text style={styles.ghostText}>SKIP</Text>
         </Pressable>
-        <Pressable style={styles.primary} onPress={handleConfirm} disabled={!frame}>
+        <Pressable style={styles.primary} onPress={handleConfirm} disabled={!frame || imgState === 'error'}>
           <Text style={styles.primaryText}>USE THIS CROP</Text>
         </Pressable>
       </View>
+    </View>
+  );
+}
+
+/** Loading/error feedback layered over the preview while the image decodes. */
+function ImgOverlay({ state }: { state: 'loading' | 'ok' | 'error' }) {
+  if (state === 'ok') return null;
+  return (
+    <View style={styles.imgOverlay} pointerEvents="none">
+      {state === 'error' ? (
+        <Text style={styles.imgErrorText}>COULD NOT DISPLAY THIS PHOTO</Text>
+      ) : (
+        <ActivityIndicator color={COLOR.gold} />
+      )}
     </View>
   );
 }
@@ -251,6 +295,23 @@ const styles = StyleSheet.create({
     left: 0,
     right: 0,
     bottom: 0,
+  },
+  imgOverlay: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  imgErrorText: {
+    color: '#E57373',
+    fontSize: 10,
+    fontWeight: '700',
+    letterSpacing: 1.5,
+    textAlign: 'center',
+    paddingHorizontal: 20,
   },
   frame: {
     position: 'absolute',

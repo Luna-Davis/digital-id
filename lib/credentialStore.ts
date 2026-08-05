@@ -14,6 +14,7 @@
 import { File, Paths } from 'expo-file-system';
 import * as SecureStore from 'expo-secure-store';
 import type { CredentialData, CropRect } from './credentialTypes';
+import { EMPTY_CREDENTIAL } from './credentialTypes';
 import {
   generateAesKey,
   encryptBytes,
@@ -114,7 +115,9 @@ export async function readCredential(): Promise<CredentialData> {
 
   const blob = unpackFile(bytes, MAGIC_LOCK, FORMAT_VERSION);
   const plain = decryptBytes(blob, key);
-  return JSON.parse(decodeUtf8(plain)) as CredentialData;
+  // Merge over the empty shape so credentials written before new fields were
+  // added (serialNumber/mrz/dateOfIssue) still read cleanly.
+  return { ...EMPTY_CREDENTIAL, ...(JSON.parse(decodeUtf8(plain)) as Partial<CredentialData>) };
 }
 
 /**

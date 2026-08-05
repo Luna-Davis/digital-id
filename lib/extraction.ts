@@ -29,6 +29,117 @@ export type ExtractionResult = {
 };
 
 // ---------------------------------------------------------------------------
+// Upright verification
+// ---------------------------------------------------------------------------
+// The card is landscape, but a 90° rotate only guarantees it is HORIZONTAL —
+// it can still be upside down (180°). ML Kit reads upside-down text poorly,
+// which scrambles both the raw text order AND the label→value placement. So
+// before extraction we verify the image is upright using the card's own
+// header: on both faces "REPUBLIC OF KENYA" (and its Swahili equivalents)
+// sits at the TOP of the card. If that text is found near the BOTTOM of the
+// image instead, the photo is upside down and must be rotated 180°.
+
+export type UprightVerdict = 'upright' | 'flipped' | 'unknown';
+
+/**
+ * Header phrases that must appear at the TOP of an upright card. Short words
+ * are included deliberately — OCR fragments ("REPUBLIC OF KENY") must still
+ * match, and none of these words appear anywhere else on the card.
+ */
+const UPRIGHT_MARKERS: Record<ScanFace, string[]> = {
+  front: [
+    'REPUBLIC OF KENYA',
+    'REPUBLIC',
+    'JAMHURI',
+    'KITAMBULISHO',
+    'NATIONAL IDENTITY',
+  ],
+  back: [
+    'REPUBLIC OF KENYA',
+    'REPUBLIC',
+    'ANWANI',
+    'ADDRESS',
+    'NATIONAL IDENTITY', // the older back prints "NATIONAL IDENTITY CARD BACK"
+  ],
+};
+
+/**
+ * True when a line looks like part of the machine-readable zone: only
+ * uppercase letters, digits and '<' fillers, long enough to be MRZ.
+ * A bare digit run (the left-edge serial) is deliberately excluded.
+ * Used for the UPRIGHT check, where false positives must be avoided.
+ */
+function isMrzLine(upper: string): boolean {
+  const t = upper.trim();
+  if (t.length < 15) return false;
+  return /^[A-Z0-9<]{15,}$/.test(t) && (t.includes('<') || t.length >= 25);
+}
+
+/**
+ * Looser MRZ check used for CAPTURING the string: OCR often splits the
+ * third (name) line into spaced words ("SMITH<K<SAMPLE <<LENA SAMPLE…").
+ * We strip separators and accept anything that is still a long run of
+ * MRZ characters. Still rejects dates and ordinary text.
+ */
+function isMrzCaptureLine(upper: string): boolean {
+  const t = upper.trim();
+  if (t.length < 12) return false;
+  const stripped = t.replace(/[^A-Z0-9<]/g, '');
+  if (stripped.length < 15) return false;
+  return stripped.includes('<') || stripped.length >= 25;
+}
+
+/**
+ * Decides whether an image is upright by where the card's header text sits.
+ * `imageHeight` is the image's height in pixels — ML Kit frames are in image
+ * space, so (frame top+bottom)/2 / imageHeight is the normalized y of a line.
+ *
+ *   median header y < 0.45 → header at top      → 'upright'
+ *   median header y > 0.55 → header at bottom    → 'flipped'
+ *   no header found        → can't tell          → 'unknown'
+ */
+export function analyzeUpright(
+  text: Text,
+  imageHeight: number,
+  face: ScanFace = 'front',
+): UprightVerdict {
+  if (!imageHeight || imageHeight <= 0) return 'unknown';
+  const markers = UPRIGHT_MARKERS[face];
+  const headerMids: number[] = [];
+  const mrzMids: number[] = [];
+  for (const block of text.blocks) {
+    for (const line of block.lines) {
+      const upper = line.text.toUpperCase();
+      if (markers.some((m) => upper.includes(m))) {
+        headerMids.push(((line.frame.top + line.frame.bottom) / 2) / imageHeight);
+      }
+      if (isMrzLine(upper)) {
+        mrzMids.push(((line.frame.top + line.frame.bottom) / 2) / imageHeight);
+      }
+    }
+  }
+
+  // Primary signal: the card's header must sit at the TOP of an upright image.
+  if (headerMids.length > 0) {
+    headerMids.sort((a, b) => a - b);
+    const median = headerMids[Math.floor(headerMids.length / 2)];
+    if (median < 0.45) return 'upright';
+    if (median > 0.55) return 'flipped';
+    // Ambiguous header — fall through so the MRZ can disambiguate.
+  }
+
+  // Fallback (this is what fixes the back face): the MRZ is ALWAYS printed
+  // at the BOTTOM of the card. If it appears in the top half, it's flipped.
+  if (mrzMids.length > 0) {
+    mrzMids.sort((a, b) => a - b);
+    const median = mrzMids[Math.floor(mrzMids.length / 2)];
+    if (median > 0.5) return 'upright';
+    if (median < 0.5) return 'flipped';
+  }
+  return 'unknown';
+}
+
+// ---------------------------------------------------------------------------
 // QR payload parsing
 // ---------------------------------------------------------------------------
 
@@ -132,6 +243,17 @@ const BACK_LABELS: { label: string; key: keyof CredentialData }[] = [
   { label: 'DATE OF EXPIRY', key: 'dateOfExpiry' },
   { label: 'ID NUMBER', key: 'idNumber' },
   { label: 'ID NO', key: 'idNumber' },
+  // Address block — the back face's own fields (COUNTY → SUB-LOCATION).
+  // These were missing from the matcher, so the address section never
+  // populated the confirmation form.
+  { label: 'COUNTY', key: 'county' },
+  { label: 'SUB-COUNTY', key: 'subCounty' },
+  { label: 'SUB COUNTY', key: 'subCounty' },
+  { label: 'DIVISION', key: 'division' },
+  { label: 'LOCATION', key: 'location' },
+  { label: 'SUB-LOCATION', key: 'subLocation' },
+  { label: 'SUB LOCATION', key: 'subLocation' },
+  { label: 'DATE OF ISSUE', key: 'dateOfIssue' },
 ];
 
 const MONTHS: Record<string, string> = {
@@ -199,24 +321,46 @@ function isKnownLabel(text: string, face: ScanFace): boolean {
 }
 
 /**
- * A label is "standalone" when the character right after it is a separator
- * (space / punctuation / end of line). This prevents "GIVEN NAME" from
- * matching inside "GIVEN NAMES" and consuming the trailing "S".
+ * A label is "standalone" when the characters around it are separators
+ * (space / punctuation / end of line). Checks BOTH sides: the after-check
+ * stops "GIVEN NAME" from matching inside "GIVEN NAMES"; the before-check
+ * (hyphen treated as a word char) stops "COUNTY"/"LOCATION" from matching
+ * inside the hyphenated labels "SUB-COUNTY"/"SUB-LOCATION".
  */
 function isStandalone(upper: string, pos: number, label: string): boolean {
+  const before = pos > 0 ? upper[pos - 1] : '';
   const after = upper[pos + label.length];
-  return after === undefined || /[^A-Z0-9]/.test(after);
+  return (
+    (before === '' || /[^A-Z0-9-]/.test(before)) &&
+    (after === undefined || /[^A-Z0-9]/.test(after))
+  );
 }
 
 /** Center-x of the label's span within its line (for column matching). */
 function labelCenterX(line: TextLine, pos: number, len: number): number {
+  const labelUpper = line.text.slice(pos, pos + len).toUpperCase();
+
+  // Exact text match first — on a columnar row each element IS one label
+  // ("SEX", "NATIONALITY", "DATE OF BIRTH"), so a word-exact match gives the
+  // true column center. Character-offset mapping below would misalign here
+  // because ML Kit strips the spaces between elements.
+  for (const el of line.elements) {
+    const elUpper = el.text.toUpperCase();
+    if (elUpper === labelUpper || (elUpper.length > 0 && elUpper.includes(labelUpper))) {
+      return (el.frame.left + el.frame.right) / 2;
+    }
+  }
+
+  // Fallback: character-offset mapping. Element texts concatenate (with one
+  // space between them) into line.text, so element i spans roughly
+  // [sum(len_j + 1 for j<i), that + len_i) in the line.
   let acc = 0;
   let minLeft = Infinity;
   let maxRight = -Infinity;
   let found = false;
   for (const el of line.elements) {
     const elStart = acc;
-    const elEnd = acc + el.text.length;
+    const elEnd = elStart + el.text.length + 1; // +1 for the following space
     if (elEnd > pos && elStart < pos + len) {
       minLeft = Math.min(minLeft, el.frame.left);
       maxRight = Math.max(maxRight, el.frame.right);
@@ -267,10 +411,15 @@ export function parseOcrText(text: Text, face: ScanFace = 'front'): ExtractionRe
       const pos = upper.indexOf(label);
       if (pos === -1 || !isStandalone(upper, pos, label)) continue;
 
-      // Same-line value: "SURNAME  SMITH". Rejected when the remainder
-      // contains another known label (the columnar row "SEX NATIONALITY
-      // DATE OF BIRTH") — that must fall through to column matching.
-      const sameLineValue = line.text.slice(pos + label.length).trim();
+      // Same-line value: "SURNAME  SMITH" or the "ID NO. 0123456789" band.
+      // Leading separators (e.g. the "." after "ID NO.") are stripped so the
+      // value is clean. Rejected when the remainder contains another known
+      // label (the columnar row "SEX NATIONALITY DATE OF BIRTH") — that must
+      // fall through to column matching.
+      const sameLineValue = line.text
+        .slice(pos + label.length)
+        .trim()
+        .replace(/^[^A-Z0-9]+/i, '');
       if (sameLineValue.length > 0 && !isKnownLabel(sameLineValue, face)) {
         data[key] = sameLineValue;
         extracted.push(key);
@@ -278,14 +427,20 @@ export function parseOcrText(text: Text, face: ScanFace = 'front'): ExtractionRe
         break;
       }
 
-      // Value on the line(s) directly below.
+      // Value on the line(s) directly below. The card's layout is "label
+      // above, value beneath" — so the value is the first non-label line
+      // that starts just below the label's bottom. A generous proximity gate
+      // (3× the label's own line height) stops an unrelated far-away line
+      // from being grabbed when OCR mis-groups lines.
       const labelBottom = line.frame.bottom;
+      const labelHeight = Math.max(1, line.frame.bottom - line.frame.top);
       const labelCx = labelCenterX(line, pos, label.length);
       const candidates = lines
         .filter(
           (candidate) =>
             candidate.index > line.index &&
             candidate.frame.top >= labelBottom - 1 &&
+            candidate.frame.top <= labelBottom + labelHeight * 3 &&
             !isKnownLabel(candidate.text, face),
         )
         .sort((a, b) => a.frame.top - b.frame.top);
@@ -294,7 +449,10 @@ export function parseOcrText(text: Text, face: ScanFace = 'front'): ExtractionRe
       if (!nearest) break;
 
       if (columnar && nearest.elements.length > 1) {
-        // Pick the column aligned under this label (closest center-x).
+        // Pick the column aligned under this label (closest center-x), then
+        // CONTINUE — a columnar row (SEX | NATIONALITY | DATE OF BIRTH) has
+        // one label per column, so the next label must keep extracting from
+        // the same value line instead of breaking out.
         const best = nearest.elements
           .map((el: TextElement, ei: number) => ({
             el,
@@ -309,6 +467,7 @@ export function parseOcrText(text: Text, face: ScanFace = 'front'): ExtractionRe
           extracted.push(key);
           taken.add(`${nearest.index}:${best.ei}`);
         }
+        continue;
       } else if (!taken.has(`${nearest.index}`)) {
         data[key] = nearest.text.trim();
         extracted.push(key);
@@ -326,6 +485,33 @@ export function parseOcrText(text: Text, face: ScanFace = 'front'): ExtractionRe
       if (data[key] === undefined || data[key] === '') {
         data[key] = value;
         if (!extracted.includes(key)) extracted.push(key);
+      }
+    }
+
+    // Also keep the MRZ itself — it is printed on the card and must render
+    // all three lines, so the looser matcher is used here.
+    const mrzLines = lines.filter((l) => isMrzCaptureLine(l.text.toUpperCase().trim()));
+    if (mrzLines.length > 0) {
+      data.mrz = mrzLines.map((l) => l.text.trim()).join('\n');
+      if (!extracted.includes('mrz')) extracted.push('mrz');
+    }
+  }
+
+  // Left-edge machine serial: a line that is essentially digits (the vertical
+  // serial can come back spaced, e.g. "0 1 2 3 …"). It must not be the ID
+  // number, and dates like "01.01.1990" are rejected by the leftover check
+  // (they keep their separators, the serial keeps only digits).
+  if (!data.serialNumber) {
+    for (const line of lines) {
+      const t = line.text.trim();
+      const digits = (t.match(/[0-9]/g) ?? []).join('');
+      if (digits.length < 6 || digits.length > 12) continue;
+      const leftover = t.replace(/[0-9\s]/g, '');
+      if (leftover.length > 1) continue; // not a digit-only line (a date, a label…)
+      if (digits !== data.idNumber) {
+        data.serialNumber = digits;
+        if (!extracted.includes('serialNumber')) extracted.push('serialNumber');
+        break;
       }
     }
   }

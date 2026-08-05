@@ -51,6 +51,9 @@ const SAMPLE: CredentialData = {
   division: 'NAIROBI',
   location: 'NAIROBI',
   subLocation: 'NAIROBI',
+  dateOfIssue: '01.01.2015',
+  serialNumber: '0123456789',
+  mrz: 'IDKEN0123456789<<0<<<K<<K<LLK\n0123456789M0123456789KEN<<LLLLLLLLLL8\nSMITH<K<SAMPLE<<LENASAMPLE<<<<LKL',
 };
 
 export default function App() {
@@ -227,6 +230,7 @@ export default function App() {
           idNumber: credential.idNumber,
           placeOfIssue: credential.placeOfIssue,
           dateOfExpiry: credential.dateOfExpiry,
+          serialNumber: credential.serialNumber,
         }}
         backProps={{
           county: credential.county,
@@ -234,6 +238,9 @@ export default function App() {
           division: credential.division,
           location: credential.location,
           subLocation: credential.subLocation,
+          dateOfIssue: credential.dateOfIssue,
+          serialNumber: credential.serialNumber,
+          mrz: credential.mrz,
         }}
         photo={photoUri ? { uri: photoUri } : undefined}
         photoCrop={photoCrop ?? undefined}

@@ -17,6 +17,12 @@
 //   3. Scale the longest edge down to `maxDim` (aspect preserved) — enough
 //      resolution for OCR, small enough to store and render cleanly.
 //
+// `prepareCardUpright` goes one step further for card faces: the 90° rotate
+// only guarantees the card is HORIZONTAL — it can still be upside down. It
+// OCRs the result and verifies the card's header ("REPUBLIC OF KENYA" and
+// friends) sits at the TOP; if the header is at the bottom, the photo is
+// rotated 180° so extraction reads the card the right way up.
+//
 // Returns a NEW local file URI + final dimensions. The source is untouched.
 //
 // IMPORTANT: expo-image-manipulator is a native module. Its package calls
@@ -29,6 +35,8 @@
 // automatically after the next native rebuild.
 
 import { Image } from 'react-native';
+import { recognizeText } from '@infinitered/react-native-mlkit-text-recognition';
+import { analyzeUpright, type ScanFace } from './extraction';
 
 export type PreparedImage = { uri: string; width: number; height: number };
 
@@ -95,6 +103,63 @@ async function fallbackToRaw(sourceUri: string): Promise<PreparedImage> {
     throw new Error('Could not determine the image dimensions.');
   }
   return { uri: sourceUri, width, height };
+}
+
+/** Rotates an already-prepared image by 180° and re-saves it as JPEG. */
+async function rotate180(sourceUri: string): Promise<PreparedImage> {
+  const mod = await loadManipulator();
+  if (!mod) throw new Error('Image manipulator unavailable.');
+  const { ImageManipulator, SaveFormat } = mod;
+  const ctx = ImageManipulator.manipulate(sourceUri);
+  ctx.rotate(180); // half-turn keeps width/height — safe to re-read from save
+  const ref = await ctx.renderAsync();
+  const saved = await ref.saveAsync({ compress: 0.92, format: SaveFormat.JPEG });
+  return { uri: saved.uri, width: saved.width, height: saved.height };
+}
+
+/**
+ * Resolves a card-face photo AND verifies it is upright.
+ *
+ *  1. `prepareImage` with orient:'card' → landscape (EXIF + 90° if portrait),
+ *     scaled to a sane OCR size.
+ *  2. OCR the result and use the card's own header as the upright check:
+ *     "REPUBLIC OF KENYA" must be near the TOP. If it's at the bottom the
+ *     card is upside down, so we rotate 180° and return the corrected image.
+ *
+ * The corrected image is what gets stored/rendered AND what ML Kit reads for
+ * extraction — so the label→value placement downstream sees text in the
+ * right order. Best-effort: when OCR can't find the header ('unknown') or
+ * anything fails, the landscape image is returned as-is; the review screen
+ * remains the safety net.
+ */
+export async function prepareCardUpright(
+  sourceUri: string,
+  face: ScanFace,
+  options: { maxDim?: number } = {},
+): Promise<PreparedImage> {
+  const mod = await loadManipulator();
+  // No native pipeline in this build — nothing can be rotated or flipped.
+  // Hand back the plain landscape-normalized (or raw) image; the degraded
+  // banner already tells the user why the full engine is off.
+  if (!mod) {
+    return prepareImage(sourceUri, { orient: 'card', maxDim: options.maxDim });
+  }
+
+  const base = await prepareImage(sourceUri, { orient: 'card', maxDim: options.maxDim });
+  // Only meaningful once the image is landscape; a portrait result means
+  // prepareImage degraded — flipping it wouldn't help.
+  if (base.width < base.height) return base;
+
+  try {
+    const text = await recognizeText(base.uri);
+    const verdict = analyzeUpright(text, base.height, face);
+    if (verdict === 'flipped') {
+      return await rotate180(base.uri); // on failure the catch below keeps base
+    }
+  } catch {
+    // OCR unavailable or failed — cannot verify; keep the landscape image.
+  }
+  return base;
 }
 
 /**

@@ -18,6 +18,12 @@ export type CredentialData = {
   division: string;
   location: string;
   subLocation: string;
+  /** Date the card was issued (back face). */
+  dateOfIssue: string;
+  /** Machine-printed serial running down the left edge of both faces. */
+  serialNumber: string;
+  /** The machine-readable zone string printed at the bottom of the back face. */
+  mrz: string;
 };
 
 /**
@@ -43,7 +49,11 @@ export const REQUIRED_FIELDS: (keyof CredentialData)[] = [
   'division',
   'location',
   'subLocation',
+  'dateOfIssue',
 ];
+
+/** Fields shown on the card but optional to the lock gate (machine text). */
+export const OPTIONAL_FIELDS: (keyof CredentialData)[] = ['serialNumber', 'mrz'];
 
 export const EMPTY_CREDENTIAL: CredentialData = {
   surname: '',
@@ -60,6 +70,9 @@ export const EMPTY_CREDENTIAL: CredentialData = {
   division: '',
   location: '',
   subLocation: '',
+  dateOfIssue: '',
+  serialNumber: '',
+  mrz: '',
 };
 
 export function missingFields(data: Partial<CredentialData>): (keyof CredentialData)[] {

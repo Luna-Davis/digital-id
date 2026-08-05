@@ -16,7 +16,13 @@ import {
   ActivityIndicator,
   Image,
 } from 'react-native';
-import { EMPTY_CREDENTIAL, missingFields, type CredentialData, type CropRect } from '../../lib/credentialTypes';
+import {
+  EMPTY_CREDENTIAL,
+  missingFields,
+  OPTIONAL_FIELDS,
+  type CredentialData,
+  type CropRect,
+} from '../../lib/credentialTypes';
 import type { ExtractionResult } from '../../lib/extraction';
 import { CropImage } from '../IDCard/CropImage';
 import { COLOR } from '../IDCard/tokens';
@@ -47,7 +53,15 @@ const BACK_FIELDS: { key: keyof CredentialData; label: string }[] = [
   { key: 'division', label: 'DIVISION' },
   { key: 'location', label: 'LOCATION' },
   { key: 'subLocation', label: 'SUB-LOCATION' },
+  { key: 'dateOfIssue', label: 'DATE OF ISSUE' },
 ];
+
+const MACHINE_FIELDS: { key: keyof CredentialData; label: string; multiline?: boolean }[] =
+  OPTIONAL_FIELDS.map((key) => ({
+    key,
+    label: key === 'mrz' ? 'MRZ — MACHINE-READABLE ZONE' : 'SERIAL NUMBER',
+    multiline: key === 'mrz',
+  }));
 
 export function ReviewScreen({ result, portraitUri, crop, onBack, onLock }: ReviewScreenProps) {
   const [fields, setFields] = useState<CredentialData>({ ...EMPTY_CREDENTIAL, ...result.data });
@@ -87,8 +101,8 @@ export function ReviewScreen({ result, portraitUri, crop, onBack, onLock }: Revi
     return { tag: 'MANUAL', color: '#7FB3D8' };
   };
 
-  const renderFields = (list: { key: keyof CredentialData; label: string }[]) =>
-    list.map(({ key, label }) => {
+  const renderFields = (list: { key: keyof CredentialData; label: string; multiline?: boolean }[]) =>
+    list.map(({ key, label, multiline }) => {
       const status = statusOf(key);
       return (
         <View key={key} style={styles.fieldRow}>
@@ -99,10 +113,12 @@ export function ReviewScreen({ result, portraitUri, crop, onBack, onLock }: Revi
           <TextInput
             value={fields[key]}
             onChangeText={(text) => setField(key, text)}
-            style={styles.input}
+            style={[styles.input, multiline && styles.inputMultiline]}
             placeholderTextColor={COLOR.textMuted}
             placeholder="—"
             autoCapitalize="characters"
+            multiline={multiline}
+            numberOfLines={multiline ? 3 : 1}
           />
         </View>
       );
@@ -137,6 +153,12 @@ export function ReviewScreen({ result, portraitUri, crop, onBack, onLock }: Revi
 
         <Text style={styles.section}>BACK OF CARD</Text>
         {renderFields(BACK_FIELDS)}
+
+        <Text style={styles.section}>MACHINE TEXT</Text>
+        <Text style={styles.sectionHint}>
+          The serial down the left edge and the long string at the bottom of the card.
+        </Text>
+        {renderFields(MACHINE_FIELDS)}
 
         {result.rawText ? (
           <Pressable onPress={() => setShowRaw((v) => !v)}>
@@ -262,6 +284,17 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     paddingHorizontal: 12,
     paddingVertical: 10,
+  },
+  inputMultiline: {
+    fontFamily: 'monospace',
+    fontSize: 12,
+    minHeight: 72,
+    textAlignVertical: 'top',
+  },
+  sectionHint: {
+    color: COLOR.textMuted,
+    fontSize: 10,
+    marginBottom: 8,
   },
   rawToggle: {
     color: COLOR.gold,

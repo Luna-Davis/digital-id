@@ -12,6 +12,11 @@ type CardBackProps = {
   division: string;
   location: string;
   subLocation: string;
+  dateOfIssue: string;
+  /** Machine-printed serial down the left edge (same on both faces). */
+  serialNumber: string;
+  /** The machine-readable zone string printed at the bottom of the card. */
+  mrz: string;
   /** Same portrait as the front face; omit to show the placeholder. */
   photo?: ImageSourcePropType;
   /** Render-time crop for the portrait (face region of the source photo). */
@@ -49,10 +54,11 @@ export function CardBack(props: CardBackProps) {
         ]}
       />
 
-      {/* Vertical serial along the left edge */}
+      {/* Vertical serial along the left edge — one digit per line, so it
+          renders reliably on every device (rotation used to clip it away). */}
       <View style={[styles.serialStrip, { width: s.serialW }]}>
-        <Text style={[styles.serial, { fontSize: s.micro, letterSpacing: s.micro * 0.5 }]}>
-          000000000
+        <Text style={[styles.serial, { fontSize: s.micro, lineHeight: s.micro, letterSpacing: 0 }]}>
+          {(props.serialNumber || '000000000').split('').join('\n')}
         </Text>
       </View>
 
@@ -130,11 +136,12 @@ export function CardBack(props: CardBackProps) {
         </View>
 
         <View style={styles.fields}>
-          <Field scale={s} label="COUNTY" value={props.county} />
-          <Field scale={s} label="SUB-COUNTY" value={props.subCounty} />
-          <Field scale={s} label="DIVISION" value={props.division} />
-          <Field scale={s} label="LOCATION" value={props.location} />
-          <Field scale={s} label="SUB-LOCATION" value={props.subLocation} />
+          <Field scale={s} label="COUNTY" value={props.county} compact />
+          <Field scale={s} label="SUB-COUNTY" value={props.subCounty} compact />
+          <Field scale={s} label="DIVISION" value={props.division} compact />
+          <Field scale={s} label="LOCATION" value={props.location} compact />
+          <Field scale={s} label="SUB-LOCATION" value={props.subLocation} compact />
+          <Field scale={s} label="DATE OF ISSUE" value={props.dateOfIssue} compact />
         </View>
 
         <Photo scale={s} photo={props.photo} crop={crop} style={{ marginLeft: s.rowGap }} />
@@ -160,73 +167,87 @@ export function CardBack(props: CardBackProps) {
           },
         ]}
       >
-        {/* Scan-zone placeholder with corner brackets */}
-        <View style={styles.scanZone}>
-          <View
+        {props.mrz ? (
+          <Text
+            numberOfLines={3}
             style={[
-              styles.corner,
-              styles.cornerTL,
-              {
-                width: s.bracket,
-                height: s.bracket,
-                borderTopWidth: s.rule * 2,
-                borderLeftWidth: s.rule * 2,
-                borderColor: COLOR.goldDim,
-              },
+              styles.mrz,
+              { fontSize: s.micro, lineHeight: s.micro * 1.3, letterSpacing: s.micro * 0.05 },
             ]}
-          />
-          <View
-            style={[
-              styles.corner,
-              styles.cornerTR,
-              {
-                width: s.bracket,
-                height: s.bracket,
-                borderTopWidth: s.rule * 2,
-                borderRightWidth: s.rule * 2,
-                borderColor: COLOR.goldDim,
-              },
-            ]}
-          />
-          <View
-            style={[
-              styles.corner,
-              styles.cornerBL,
-              {
-                width: s.bracket,
-                height: s.bracket,
-                borderBottomWidth: s.rule * 2,
-                borderLeftWidth: s.rule * 2,
-                borderColor: COLOR.goldDim,
-              },
-            ]}
-          />
-          <View
-            style={[
-              styles.corner,
-              styles.cornerBR,
-              {
-                width: s.bracket,
-                height: s.bracket,
-                borderBottomWidth: s.rule * 2,
-                borderRightWidth: s.rule * 2,
-                borderColor: COLOR.goldDim,
-              },
-            ]}
-          />
-          <Text style={[styles.credLabel, { fontSize: s.micro, letterSpacing: s.micro * 0.5 }]}>
-            CITIZEN CREDENTIALS
+          >
+            {props.mrz}
           </Text>
-        </View>
+        ) : (
+          <>
+            {/* Scan-zone placeholder with corner brackets */}
+            <View style={styles.scanZone}>
+              <View
+                style={[
+                  styles.corner,
+                  styles.cornerTL,
+                  {
+                    width: s.bracket,
+                    height: s.bracket,
+                    borderTopWidth: s.rule * 2,
+                    borderLeftWidth: s.rule * 2,
+                    borderColor: COLOR.goldDim,
+                  },
+                ]}
+              />
+              <View
+                style={[
+                  styles.corner,
+                  styles.cornerTR,
+                  {
+                    width: s.bracket,
+                    height: s.bracket,
+                    borderTopWidth: s.rule * 2,
+                    borderRightWidth: s.rule * 2,
+                    borderColor: COLOR.goldDim,
+                  },
+                ]}
+              />
+              <View
+                style={[
+                  styles.corner,
+                  styles.cornerBL,
+                  {
+                    width: s.bracket,
+                    height: s.bracket,
+                    borderBottomWidth: s.rule * 2,
+                    borderLeftWidth: s.rule * 2,
+                    borderColor: COLOR.goldDim,
+                  },
+                ]}
+              />
+              <View
+                style={[
+                  styles.corner,
+                  styles.cornerBR,
+                  {
+                    width: s.bracket,
+                    height: s.bracket,
+                    borderBottomWidth: s.rule * 2,
+                    borderRightWidth: s.rule * 2,
+                    borderColor: COLOR.goldDim,
+                  },
+                ]}
+              />
+              <Text style={[styles.credLabel, { fontSize: s.micro, letterSpacing: s.micro * 0.5 }]}>
+                CITIZEN CREDENTIALS
+              </Text>
+            </View>
 
-        <View style={[styles.sig, { width: s.sigW, marginLeft: s.rowGap }]}>
-          <Text style={[styles.sigLabel, { fontSize: s.micro, letterSpacing: s.micro * 0.45 }]}>
-            SIGNATURE
-          </Text>
-          <View
-            style={[styles.sigLine, { height: s.rule, backgroundColor: COLOR.textMuted, marginTop: s.pad * 0.45 }]}
-          />
-        </View>
+            <View style={[styles.sig, { width: s.sigW, marginLeft: s.rowGap }]}>
+              <Text style={[styles.sigLabel, { fontSize: s.micro, letterSpacing: s.micro * 0.45 }]}>
+                SIGNATURE
+              </Text>
+              <View
+                style={[styles.sigLine, { height: s.rule, backgroundColor: COLOR.textMuted, marginTop: s.pad * 0.45 }]}
+              />
+            </View>
+          </>
+        )}
       </View>
     </View>
   );
@@ -256,7 +277,7 @@ const styles = StyleSheet.create({
   serial: {
     color: COLOR.textMuted,
     fontFamily: MONO,
-    transform: [{ rotate: '-90deg' }],
+    textAlign: 'center',
   },
   watermark: {
     position: 'absolute',
@@ -356,6 +377,12 @@ const styles = StyleSheet.create({
   credLabel: {
     color: COLOR.textSecondary,
     fontWeight: '700',
+  },
+  mrz: {
+    color: COLOR.text,
+    fontFamily: MONO,
+    flex: 1,
+    textAlign: 'center',
   },
   sig: {
     alignItems: 'flex-end',

@@ -16,6 +16,8 @@ type CardFrontProps = {
   idNumber: string;
   placeOfIssue: string;
   dateOfExpiry: string;
+  /** Machine-printed serial down the left edge (same on both faces). */
+  serialNumber: string;
   /** Portrait shown on both faces; omit to show the placeholder. */
   photo?: ImageSourcePropType;
   /** Render-time crop for the portrait (face region of the source photo). */
@@ -53,10 +55,11 @@ export function CardFront(props: CardFrontProps) {
         ]}
       />
 
-      {/* Vertical serial along the left edge */}
+      {/* Vertical serial along the left edge — one digit per line, so it
+          renders reliably on every device (rotation used to clip it away). */}
       <View style={[styles.serialStrip, { width: s.serialW }]}>
-        <Text style={[styles.serial, { fontSize: s.micro, letterSpacing: s.micro * 0.5 }]}>
-          000000000
+        <Text style={[styles.serial, { fontSize: s.micro, lineHeight: s.micro, letterSpacing: 0 }]}>
+          {(props.serialNumber || '000000000').split('').join('\n')}
         </Text>
       </View>
 
@@ -188,7 +191,7 @@ const styles = StyleSheet.create({
   serial: {
     color: COLOR.textMuted,
     fontFamily: MONO,
-    transform: [{ rotate: '-90deg' }],
+    textAlign: 'center',
   },
   header: {
     flexDirection: 'row',
